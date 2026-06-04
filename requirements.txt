@@ -1,0 +1,6 @@
+Flask
+feedparser
+deep_translator
+requests
+beautifulsoup4
+gunicorn
