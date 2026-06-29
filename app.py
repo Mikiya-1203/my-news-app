@@ -13,7 +13,7 @@ def get_bbc_news():
     feed = feedparser.parse(RSS_URL)
     articles = []
     
-    # 🌟 ニュースを「2個」取得
+    # ニュースを2個取得（それぞれもしっかり長文にする）
     for entry in feed.entries[:2]:
         try:
             resp = requests.get(entry.link, timeout=5)
@@ -21,7 +21,6 @@ def get_bbc_news():
             p_tags = soup.find_all('p')
             paragraphs = [p.get_text() for p in p_tags if len(p.get_text().split()) > 10]
             
-            # 各ニュースもしっかり長文（6段落分）にする
             text = " ".join(paragraphs[:6])
             if text:
                 articles.append({
@@ -36,38 +35,45 @@ def get_bbc_news():
 
 def get_random_medical_articles():
     keywords = ['neuroscience', 'cancer', 'immunology', 'genetics', 'cardiology', 'psychiatry', 'diabetes', 'virology']
-    # 🌟 毎回異なるテーマになるよう、ランダムに2つのキーワードを選ぶ
+    # 毎回異なるテーマになるよう、ランダムに2つのキーワードを選ぶ
     chosen_kws = random.sample(keywords, 2)
     med_articles = []
     
     for kw in chosen_kws:
         try:
-            search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={kw}&retmode=json&retmax=10"
+            # 🌟 2つのキーワードから、さらにそれぞれ「2つの異なる論文」をランダムに選んで合体させ、1本1本を超長文にする！
+            search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={kw}&retmode=json&retmax=15"
             search_resp = requests.get(search_url, timeout=5).json()
             id_list = search_resp.get("esearchresult", {}).get("idlist", [])
             
-            if id_list:
-                pid = random.choice(id_list)
-                fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pid}&retmode=xml"
-                fetch_resp = requests.get(fetch_url, timeout=5)
-                root = ET.fromstring(fetch_resp.content)
+            if len(id_list) >= 2:
+                chosen_ids = random.sample(id_list, 2)
+                combined_text = ""
                 
-                title_elem = root.find(".//ArticleTitle")
-                p_title = title_elem.text if title_elem is not None else "Medical Research"
+                for i, pid in enumerate(chosen_ids, 1):
+                    fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pid}&retmode=xml"
+                    fetch_resp = requests.get(fetch_url, timeout=5)
+                    root = ET.fromstring(fetch_resp.content)
+                    
+                    title_elem = root.find(".//ArticleTitle")
+                    p_title = title_elem.text if title_elem is not None else "Medical Research Section"
+                    
+                    abstract_texts = [elem.text for elem in root.findall(".//AbstractText") if elem.text]
+                    p_abstract = " ".join(abstract_texts)
+                    
+                    if p_abstract:
+                        combined_text += f"【Part {i}: {p_title}】\n{p_abstract}\n\n"
                 
-                abstract_texts = [elem.text for elem in root.findall(".//AbstractText") if elem.text]
-                p_abstract = " ".join(abstract_texts)
-                
-                if p_abstract:
+                if combined_text:
                     med_articles.append({
-                        "title": f"🔬 [PubMed] {p_title} ({kw.upper()})",
-                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pid}/",
-                        "text": p_abstract
+                        "title": f"🔬 [PubMed医学長文] テーマ: {kw.upper()}",
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{chosen_ids[0]}/",
+                        "text": combined_text.strip()
                     })
         except Exception as e:
             print(f"Error fetching PubMed for {kw}: {e}")
             
-    # 万が一通信エラー等で2個取れなかった場合のバックアップ
+    # バックアップ用（通信エラー等で不足した場合）
     while len(med_articles) < 2:
         med_articles.append({
             "title": "🔬 [PubMed/Backup] Pathological manifestations of neurodegenerative conditions",
@@ -89,7 +95,6 @@ def get_random_medical_articles():
 
 @app.route('/')
 def index():
-    # リアルタイムでニュース2個、医学論文2個を取得して合体
     articles = get_bbc_news()
     med_articles = get_random_medical_articles()
     articles.extend(med_articles)
@@ -115,7 +120,7 @@ def index():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>究極の英語長文アプリ（ニュース2本＋医学論文2本）</title>
+        <title>究極の英語長文アプリ（ニュース2本＋超医学長文2本）</title>
         <style>
             body { font-family: sans-serif; margin: 20px; background: #f5f5f5; }
             .article { background: white; padding: 20px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
@@ -150,7 +155,7 @@ def index():
         </style>
     </head>
     <body>
-        <h1>📚 本日の特大長文（ニュース2本 ＋ 医学論文2本）</h1>
+        <h1>📚 本日の特大長文（ニュース2本 ＋ 超医学長文2本）</h1>
         
         {% for art in articles %}
         <div class="article">
@@ -171,7 +176,7 @@ def index():
         </div>
 
         <script>
-            // 読み上げ機能（100%動作版）
+            // 🌟 読み上げ機能（明るい声を自動選択するロジックに強化）
             document.querySelectorAll('.speak-btn').forEach(button => {
                 button.addEventListener('click', function() {
                     const articleDiv = this.closest('.article');
@@ -193,7 +198,25 @@ def index():
 
                     const utterance = new SpeechSynthesisUtterance(englishText);
                     utterance.lang = 'en-US';
-                    utterance.rate = 0.9;
+                    
+                    // デバイス内の声リストを取得して、一番ピッチが高くて明るい声（GoogleやAppleの女性声など）を探す
+                    const voices = window.speechSynthesis.getVoices();
+                    const englishVoices = voices.filter(v => v.lang.startsWith('en'));
+                    
+                    // "Google" や "Samantha", "Moira" などの明るめの声を優先
+                    const brightVoice = englishVoices.find(v => 
+                        v.name.includes('Google') || 
+                        v.name.includes('Samantha') || 
+                        v.name.includes('Zira') || 
+                        v.name.includes('Moira')
+                    );
+                    
+                    if (brightVoice) {
+                        utterance.voice = brightVoice;
+                    }
+                    
+                    utterance.pitch = 1.15; // 🌟 声のトーンを上げて明るくする
+                    utterance.rate = 0.95;  // 🌟 聞き取りやすく自然な速度
 
                     utterance.onend = () => {
                         this.classList.remove('playing');
@@ -205,6 +228,9 @@ def index():
                     window.speechSynthesis.speak(utterance);
                 });
             });
+
+            // 最初に音声リストをバックグラウンドで読み込んでおくための処理
+            window.speechSynthesis.getVoices();
 
             // ポップアップ辞書
             document.addEventListener('mouseup', function(e) {
@@ -244,4 +270,4 @@ def index():
     return render_template_string(html_template, articles=translated_articles)
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5006)
+    app.run(debug=True, host='0.0.0.0', port=5007)
