@@ -8,10 +8,10 @@ import xml.etree.ElementTree as ET
 
 app = Flask(__name__)
 
-# 🌟 キャッシュ（一時保存）用の秘密の部屋
+# キャッシュ用の部屋
 CACHED_DATA = None
 LAST_FETCH_TIME = 0
-CACHE_DURATION = 3600  # 3600秒 ＝ 1時間有効
+CACHE_DURATION = 3600  # 1時間
 
 def get_bbc_news():
     RSS_URL = "https://feeds.bbci.co.uk/news/rss.xml"
@@ -42,46 +42,55 @@ def get_latest_medical_abstract():
         search_resp = requests.get(search_url, timeout=5).json()
         
         id_list = search_resp.get("esearchresult", {}).get("idlist", [])
-        if not id_list:
-            return None
+        if id_list:
+            pubmed_id = id_list[0]
+            fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pubmed_id}&retmode=xml"
+            fetch_resp = requests.get(fetch_url, timeout=5)
             
-        pubmed_id = id_list[0]
-        fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pubmed_id}&retmode=xml"
-        fetch_resp = requests.get(fetch_url, timeout=5)
-        
-        root = ET.fromstring(fetch_resp.content)
-        title_element = root.find(".//ArticleTitle")
-        title = title_element.text if title_element is not None else "Latest Medical Research"
-        
-        abstract_texts = [elem.text for elem in root.findall(".//AbstractText") if elem.text]
-        abstract = " ".join(abstract_texts)
-        
-        if abstract:
-            return {
-                "title": f"🔬 [PubMed最新論文] {title}",
-                "url": f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/",
-                "text": abstract
-            }
+            root = ET.fromstring(fetch_resp.content)
+            title_element = root.find(".//ArticleTitle")
+            title = title_element.text if title_element is not None else "Latest Medical Research"
+            
+            abstract_texts = [elem.text for elem in root.findall(".//AbstractText") if elem.text]
+            abstract = " ".join(abstract_texts)
+            
+            if abstract:
+                return {
+                    "title": f"🔬 [PubMed最新論文] {title}",
+                    "url": f"https://pubmed.ncbi.nlm.nih.gov/{pubmed_id}/",
+                    "text": abstract
+                }
     except Exception as e:
         print(f"Error fetching PubMed: {e}")
-    return None
+    
+    # 🌟【ここを修正】APIエラーやタイムアウトの時は、あの鬼むず長文を必ず出す！
+    return {
+        "title": "🔬 [PubMed/Challenge] Pathological manifestations of neurodegenerative conditions",
+        "url": "https://pubmed.ncbi.nlm.nih.gov/",
+        "text": (
+            "Pathological manifestations of neurodegenerative conditions, particularly those "
+            "characterized by the aberrant aggregation of misfolded tau proteins within the cortical "
+            "interneurons, have long confounded clinicians seeking to elucidate the precise molecular "
+            "cascades that precipitate synaptic dysfunction. While contemporary neuroimaging modalities, "
+            "such as high-resolution positron emission tomography, have facilitated the in vivo visualization "
+            "of amyloid-beta deposition, the degree to which these proteopathic aggregates directly correlate "
+            "with cognitive decline remains a subject of intense academic disputation."
+        )
+    }
 
 @app.route('/')
 def index():
     global CACHED_DATA, LAST_FETCH_TIME
     current_time = time.time()
     
-    # ⚡️ 【ここが超重要】前回の取得から1時間以内なら、保存してあるデータを一瞬で返す！
     if CACHED_DATA and (current_time - LAST_FETCH_TIME < CACHE_DURATION):
-        print("🚀 キャッシュから一瞬でデータを読み込みました！")
         return CACHED_DATA
 
-    print("🔄 1時間以上経ったか、初めてのアクセスなので新しく翻訳中...")
-    
     articles = get_bbc_news()
+    
+    # 常に何かしらの医学論文データが返ってくるので確実に合流します
     med_article = get_latest_medical_abstract()
-    if med_article:
-        articles.append(med_article)
+    articles.append(med_article)
         
     translated_articles = []
     
@@ -94,7 +103,6 @@ def index():
             try:
                 translated_text = GoogleTranslator(source='en', target='ja').translate(chunk)
                 translated_chunks.append(translated_text)
-                # ⚡️ 動作を軽くするため、無駄な待機時間（time.sleep）を削除しました！
             except Exception as e:
                 translated_chunks.append("[翻訳エラー]")
         
@@ -191,7 +199,6 @@ def index():
     </html>
     """
     
-    # 出来上がったHTMLをキャッシュに保存
     CACHED_DATA = render_template_string(html_template, articles=translated_articles)
     LAST_FETCH_TIME = current_time
     
