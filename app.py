@@ -63,7 +63,6 @@ def get_latest_medical_abstract():
     except Exception as e:
         print(f"Error fetching PubMed: {e}")
     
-    # 🌟【ここを修正】APIエラーやタイムアウトの時は、あの鬼むず長文を必ず出す！
     return {
         "title": "🔬 [PubMed/Challenge] Pathological manifestations of neurodegenerative conditions",
         "url": "https://pubmed.ncbi.nlm.nih.gov/",
@@ -87,8 +86,6 @@ def index():
         return CACHED_DATA
 
     articles = get_bbc_news()
-    
-    # 常に何かしらの医学論文データが返ってくるので確実に合流します
     med_article = get_latest_medical_abstract()
     articles.append(med_article)
         
@@ -125,9 +122,20 @@ def index():
         <style>
             body { font-family: sans-serif; margin: 20px; background: #f5f5f5; }
             .article { background: white; padding: 20px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-            h2 { color: #333; font-size: 20px; }
+            h2 { color: #333; font-size: 20px; margin-bottom: 10px; }
             h2 a { color: #0066cc; text-decoration: none; }
             h2 a:hover { text-decoration: underline; }
+            
+            /* 🌟 読み上げボタンのスタイル */
+            .speak-btn {
+                background: #0088cc; color: white; border: none; padding: 8px 16px;
+                border-radius: 20px; cursor: pointer; font-size: 14px; font-weight: bold;
+                margin-bottom: 15px; display: inline-flex; align-items: center; gap: 5px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1); transition: background 0.2s;
+            }
+            .speak-btn:hover { background: #0066aa; }
+            .speak-btn.playing { background: #e03131; } /* 再生中は赤くなる */
+
             .container { display: flex; gap: 20px; }
             .box { width: 50%; padding: 15px; border: 1px solid #ddd; border-radius: 5px; background: #fff; line-height: 1.6; }
             .english { font-size: 18px; font-family: 'Georgia', serif; }
@@ -151,6 +159,9 @@ def index():
         {% for art in articles %}
         <div class="article">
             <h2><a href="{{ art.url }}" target="_blank">{{ art.title }}</a></h2>
+            
+            <button class="speak-btn">🔊 英文を読み上げる</button>
+            
             <div class="container">
                 <div class="box english">{{ art.english }}</div>
                 <div class="box japanese">{{ art.japanese }}</div>
@@ -164,6 +175,49 @@ def index():
         </div>
 
         <script>
+            // 🌟 読み上げ機能のJavaScript
+            document.querySelectorAll('.speak-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const articleDiv = this.closest('.article');
+                    const englishText = articleDiv.querySelector('.english').innerText;
+                    
+                    // すでに他の文章を喋っている場合は一回止める
+                    if (window.speechSynthesis.speaking) {
+                        window.speechSynthesis.cancel();
+                        
+                        // もし「再生中だったボタン」自身がもう一度押されたなら、停止して終了
+                        if (this.classList.contains('playing')) {
+                            this.classList.remove('playing');
+                            this.innerText = "🔊 英文を読み上げる";
+                            return;
+                        }
+                    }
+                    
+                    // 一旦すべてのボタンの見た目を「再生前」に戻す
+                    document.querySelectorAll('.speak-btn').forEach(b => {
+                        b.classList.remove('playing');
+                        b.innerText = "🔊 英文を読み上げる";
+                    });
+
+                    // 読み上げの設定
+                    const utterance = new SpeechSynthesisUtterance(englishText);
+                    utterance.lang = 'en-US';  # ネイティブ（アメリカ英語）
+                    utterance.rate = 0.9;      # スピード（1.0が標準。0.9で少し聞き取りやすく調整）
+
+                    // 読み上げが終わったときの処理
+                    utterance.onend = () => {
+                        this.classList.remove('playing');
+                        this.innerText = "🔊 英文を読み上げる";
+                    };
+
+                    // 再生中の見た目に切り替えて喋り出す
+                    this.classList.add('playing');
+                    this.innerText = "🛑 止める";
+                    window.speechSynthesis.speak(utterance);
+                });
+            });
+
+            // ポップアップ辞書機能（そのまま）
             document.addEventListener('mouseup', function(e) {
                 var selectedText = window.getSelection().toString().trim();
                 var popup = document.getElementById('dict-popup');
@@ -205,4 +259,4 @@ def index():
     return CACHED_DATA
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5003)
+    app.run(debug=True, host='0.0.0.0', port=5004)
