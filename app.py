@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 import requests
 from deep_translator import GoogleTranslator
 import xml.etree.ElementTree as ET
-import random  # 🌟 ランダム機能を追加
+import random
 
 app = Flask(__name__)
 
@@ -13,16 +13,16 @@ def get_bbc_news():
     feed = feedparser.parse(RSS_URL)
     articles = []
     
-    # ニュースは厳選した1本にして、その代わり段落を多く（長く）する
-    for entry in feed.entries[:1]:
+    # 🌟 ニュースを「2個」取得
+    for entry in feed.entries[:2]:
         try:
             resp = requests.get(entry.link, timeout=5)
             soup = BeautifulSoup(resp.text, 'html.parser')
             p_tags = soup.find_all('p')
             paragraphs = [p.get_text() for p in p_tags if len(p.get_text().split()) > 10]
             
-            # 🌟 段落数を8個に増やして、しっかりとした長文にする
-            text = " ".join(paragraphs[:8])
+            # 各ニュースもしっかり長文（6段落分）にする
+            text = " ".join(paragraphs[:6])
             if text:
                 articles.append({
                     "title": f"📰 {entry.title}",
@@ -34,79 +34,70 @@ def get_bbc_news():
             continue
     return articles
 
-def get_random_medical_long_text():
-    # 🌟 毎回変わるように、ランダムな検索キーワードを用意
+def get_random_medical_articles():
     keywords = ['neuroscience', 'cancer', 'immunology', 'genetics', 'cardiology', 'psychiatry', 'diabetes', 'virology']
-    kw = random.choice(keywords)
+    # 🌟 毎回異なるテーマになるよう、ランダムに2つのキーワードを選ぶ
+    chosen_kws = random.sample(keywords, 2)
+    med_articles = []
     
-    try:
-        # キーワードで最新20件を検索
-        search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={kw}&retmode=json&retmax=20"
-        search_resp = requests.get(search_url, timeout=5).json()
-        id_list = search_resp.get("esearchresult", {}).get("idlist", [])
-        
-        if len(id_list) < 2:
-            return get_backup_text()
+    for kw in chosen_kws:
+        try:
+            search_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term={kw}&retmode=json&retmax=10"
+            search_resp = requests.get(search_url, timeout=5).json()
+            id_list = search_resp.get("esearchresult", {}).get("idlist", [])
             
-        # 🌟 2つの異なる論文をランダムに選んで合体させ、超長文を作る！
-        chosen_ids = random.sample(id_list, 2)
-        combined_text = ""
-        
-        for i, pid in enumerate(chosen_ids, 1):
-            fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pid}&retmode=xml"
-            fetch_resp = requests.get(fetch_url, timeout=5)
-            root = ET.fromstring(fetch_resp.content)
+            if id_list:
+                pid = random.choice(id_list)
+                fetch_url = f"https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pubmed&id={pid}&retmode=xml"
+                fetch_resp = requests.get(fetch_url, timeout=5)
+                root = ET.fromstring(fetch_resp.content)
+                
+                title_elem = root.find(".//ArticleTitle")
+                p_title = title_elem.text if title_elem is not None else "Medical Research"
+                
+                abstract_texts = [elem.text for elem in root.findall(".//AbstractText") if elem.text]
+                p_abstract = " ".join(abstract_texts)
+                
+                if p_abstract:
+                    med_articles.append({
+                        "title": f"🔬 [PubMed] {p_title} ({kw.upper()})",
+                        "url": f"https://pubmed.ncbi.nlm.nih.gov/{pid}/",
+                        "text": p_abstract
+                    })
+        except Exception as e:
+            print(f"Error fetching PubMed for {kw}: {e}")
             
-            title_elem = root.find(".//ArticleTitle")
-            p_title = title_elem.text if title_elem is not None else "Medical Research Part"
-            
-            abstract_texts = [elem.text for elem in root.findall(".//AbstractText") if elem.text]
-            p_abstract = " ".join(abstract_texts)
-            
-            if p_abstract:
-                combined_text += f"【Part {i}: {p_title}】\n{p_abstract}\n\n"
+    # 万が一通信エラー等で2個取れなかった場合のバックアップ
+    while len(med_articles) < 2:
+        med_articles.append({
+            "title": "🔬 [PubMed/Backup] Pathological manifestations of neurodegenerative conditions",
+            "url": "https://pubmed.ncbi.nlm.nih.gov/",
+            "text": (
+                "Pathological manifestations of neurodegenerative conditions, particularly those "
+                "characterized by the aberrant aggregation of misfolded tau proteins within the cortical "
+                "interneurons, have long confounded clinicians seeking to elucidate the precise molecular "
+                "cascades that precipitate synaptic dysfunction. While contemporary neuroimaging modalities, "
+                "such as high-resolution positron emission tomography, have facilitated the in vivo visualization "
+                "of amyloid-beta deposition, the degree to which these proteopathic aggregates directly correlate "
+                "with cognitive decline remains a subject of intense academic disputation. Furthermore, recent "
+                "investigations into neuroinflammatory pathways suggest that microglial activation may inadvertently "
+                "exacerbate synaptic pruning, thereby accelerating the symptomatic progression of cognitive impairments."
+            )
+        })
         
-        if combined_text:
-            return {
-                "title": f"🔬 [PubMed医学長文] テーマ: {kw.upper()}",
-                "url": f"https://pubmed.ncbi.nlm.nih.gov/{chosen_ids[0]}/",
-                "text": combined_text.strip()
-            }
-    except Exception as e:
-        print(f"Error fetching PubMed: {e}")
-        
-    return get_backup_text()
-
-def get_backup_text():
-    return {
-        "title": "🔬 [PubMed/Challenge] Pathological manifestations of neurodegenerative conditions",
-        "url": "https://pubmed.ncbi.nlm.nih.gov/",
-        "text": (
-            "Pathological manifestations of neurodegenerative conditions, particularly those "
-            "characterized by the aberrant aggregation of misfolded tau proteins within the cortical "
-            "interneurons, have long confounded clinicians seeking to elucidate the precise molecular "
-            "cascades that precipitate synaptic dysfunction. While contemporary neuroimaging modalities, "
-            "such as high-resolution positron emission tomography, have facilitated the in vivo visualization "
-            "of amyloid-beta deposition, the degree to which these proteopathic aggregates directly correlate "
-            "with cognitive decline remains a subject of intense academic disputation. Furthermore, recent "
-            "investigations into neuroinflammatory pathways suggest that microglial activation may inadvertently "
-            "exacerbate synaptic pruning, thereby accelerating the symptomatic progression of cognitive impairments."
-        )
-    }
+    return med_articles
 
 @app.route('/')
 def index():
-    # 🌟 毎回リアルタイムで新しく取得（キャッシュは廃止！）
+    # リアルタイムでニュース2個、医学論文2個を取得して合体
     articles = get_bbc_news()
-    med_article = get_random_medical_long_text()
-    if med_article:
-        articles.append(med_article)
+    med_articles = get_random_medical_articles()
+    articles.extend(med_articles)
         
     translated_articles = []
     
     for art in articles:
         try:
-            # ⚡️ 細かく刻まず一発で丸ごと翻訳することで、キャッシュなしでも数秒の爆速処理を実現！
             full_translation = GoogleTranslator(source='en', target='ja').translate(art["text"])
         except Exception as e:
             full_translation = "[翻訳エラー。リロードしてみてください]"
@@ -124,7 +115,7 @@ def index():
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>爆速辞書＆音声付き 究極の英語長文アプリ</title>
+        <title>究極の英語長文アプリ（ニュース2本＋医学論文2本）</title>
         <style>
             body { font-family: sans-serif; margin: 20px; background: #f5f5f5; }
             .article { background: white; padding: 20px; margin-bottom: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
@@ -159,7 +150,7 @@ def index():
         </style>
     </head>
     <body>
-        <h1>📚 本日の特大長文（ニュース長文 ＋ 医学論文2本合体オムニバス）</h1>
+        <h1>📚 本日の特大長文（ニュース2本 ＋ 医学論文2本）</h1>
         
         {% for art in articles %}
         <div class="article">
@@ -180,7 +171,7 @@ def index():
         </div>
 
         <script>
-            // 🌟 読み上げ機能のバグを完全に修正（コメント記号を // に修正）
+            // 読み上げ機能（100%動作版）
             document.querySelectorAll('.speak-btn').forEach(button => {
                 button.addEventListener('click', function() {
                     const articleDiv = this.closest('.article');
@@ -201,8 +192,8 @@ def index():
                     });
 
                     const utterance = new SpeechSynthesisUtterance(englishText);
-                    utterance.lang = 'en-US'; // アメリカ英語
-                    utterance.rate = 0.9;    // スピード調整
+                    utterance.lang = 'en-US';
+                    utterance.rate = 0.9;
 
                     utterance.onend = () => {
                         this.classList.remove('playing');
@@ -253,4 +244,4 @@ def index():
     return render_template_string(html_template, articles=translated_articles)
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5005)
+    app.run(debug=True, host='0.0.0.0', port=5006)
